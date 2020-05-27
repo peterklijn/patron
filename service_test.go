@@ -16,8 +16,10 @@ import (
 
 func TestNewServer(t *testing.T) {
 
-	routesBuilder := phttp.NewRoutesBuilder().
-		Append(phttp.NewRawRouteBuilder("/", func(w http.ResponseWriter, r *http.Request) {}).MethodGet())
+	routesBuilderBuilder := func() *phttp.RoutesBuilder {
+		return phttp.NewRoutesBuilder().
+			Append(phttp.NewRawRouteBuilder("/", func(w http.ResponseWriter, r *http.Request) {}).MethodGet())
+	}
 
 	middleware := func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -43,12 +45,13 @@ func TestNewServer(t *testing.T) {
 		rcf           phttp.ReadyCheckFunc
 		sighupHandler func()
 		wantErr       error
+		portOverride  int
 	}{
 		"success": {
 			name:          "test",
 			version:       "dev",
 			cps:           []Component{&testComponent{}, &testComponent{}},
-			routesBuilder: routesBuilder,
+			routesBuilder: routesBuilderBuilder(),
 			middlewares:   []phttp.MiddlewareFunc{middleware},
 			acf:           phttp.DefaultAliveCheck,
 			rcf:           phttp.DefaultReadyCheck,
@@ -77,18 +80,34 @@ func TestNewServer(t *testing.T) {
 			sighupHandler: nil,
 			wantErr:       httpBuilderAllErrors,
 		},
+		"with port override": {
+			name:          "test with ports",
+			version:       "dev",
+			cps:           []Component{&testComponent{}, &testComponent{}},
+			routesBuilder: routesBuilderBuilder(),
+			middlewares:   []phttp.MiddlewareFunc{middleware},
+			acf:           phttp.DefaultAliveCheck,
+			rcf:           phttp.DefaultReadyCheck,
+			sighupHandler: func() { log.Info("SIGHUP received: nothing setup") },
+			wantErr:       nil,
+		},
 	}
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			gotService, gotErr := New(tt.name, tt.version).
+			builder := New(tt.name, tt.version).
 				WithRoutesBuilder(tt.routesBuilder).
 				WithMiddlewares(tt.middlewares...).
 				WithAliveCheck(tt.acf).
 				WithReadyCheck(tt.rcf).
 				WithComponents(tt.cps...).
-				WithSIGHUP(tt.sighupHandler).
-				build()
+				WithSIGHUP(tt.sighupHandler)
+
+			if tt.portOverride != 0 {
+				builder = builder.WithPort(int64(tt.portOverride))
+			}
+
+			gotService, gotErr := builder.build()
 
 			if tt.wantErr != nil {
 				assert.Equal(t, tt.wantErr.Error(), gotErr.Error())
@@ -105,6 +124,12 @@ func TestNewServer(t *testing.T) {
 				assert.NotNil(t, gotService.acf)
 				assert.NotNil(t, gotService.termSig)
 				assert.NotNil(t, gotService.sighupHandler)
+
+				if tt.portOverride != 0 {
+					assert.Equal(t, int64(tt.portOverride), gotService.port)
+				} else {
+					assert.Equal(t, int64(50000), gotService.port)
+				}
 
 				for _, comp := range tt.cps {
 					assert.Contains(t, gotService.cps, comp)
