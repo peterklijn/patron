@@ -60,6 +60,7 @@ type service struct {
 	rcf           http.ReadyCheckFunc
 	termSig       chan os.Signal
 	sighupHandler func()
+	port          int64
 }
 
 func (s *service) setupOSSignal() {
@@ -129,18 +130,17 @@ func (s *service) setupDefaultTracing(name, version string) error {
 
 func (s *service) createHTTPComponent() (Component, error) {
 	var err error
-	var portVal = int64(50000)
 	port, ok := os.LookupEnv("PATRON_HTTP_DEFAULT_PORT")
 	if ok {
-		portVal, err = strconv.ParseInt(port, 10, 64)
+		s.port, err = strconv.ParseInt(port, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("env var for HTTP default port is not valid: %w", err)
 		}
 	}
-	port = strconv.FormatInt(portVal, 10)
+	port = strconv.FormatInt(s.port, 10)
 	log.Infof("creating default HTTP component at port %s", port)
 
-	b := http.NewBuilder().WithPort(int(portVal))
+	b := http.NewBuilder().WithPort(int(s.port))
 
 	if s.acf != nil {
 		b.WithAliveCheckFunc(s.acf)
@@ -197,6 +197,7 @@ type Builder struct {
 	rcf           http.ReadyCheckFunc
 	termSig       chan os.Signal
 	sighupHandler func()
+	defaultPort   int64
 }
 
 // New initiates the Service builder chain.
@@ -220,6 +221,7 @@ func New(name, version string) *Builder {
 		rcf:           http.DefaultReadyCheck,
 		termSig:       make(chan os.Signal, 1),
 		sighupHandler: func() { log.Info("SIGHUP received: nothing setup") },
+		defaultPort:   int64(50000),
 	}
 }
 
@@ -295,6 +297,12 @@ func (b *Builder) WithSIGHUP(handler func()) *Builder {
 	return b
 }
 
+// WithPort overrides the default port
+func (b *Builder) WithPort(port int64) *Builder {
+	b.defaultPort = port
+	return b
+}
+
 // Build constructs the Patron service by applying the gathered properties.
 func (b *Builder) build() (*service, error) {
 	if len(b.errors) > 0 {
@@ -309,6 +317,7 @@ func (b *Builder) build() (*service, error) {
 		rcf:           b.rcf,
 		termSig:       b.termSig,
 		sighupHandler: b.sighupHandler,
+		port:          b.defaultPort,
 	}
 
 	err := SetupLogging(b.name, b.version)
