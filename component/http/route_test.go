@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/julienschmidt/httprouter"
+
 	"github.com/beatlabs/patron/component/http/auth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -323,6 +325,42 @@ func TestRoute_Getters(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, expectedResponse, gotResponse)
+}
+
+func TestBla(t *testing.T) {
+
+	handlerv1 := func(context.Context, *Request) (*Response, error) {
+		println("Inside handler v1")
+		return &Response{1}, nil
+	}
+	handlerv2 := func(context.Context, *Request) (*Response, error) {
+		println("Inside handler v2")
+		return &Response{2}, nil
+	}
+	routes, err := NewRoutesBuilder().
+		Append(NewVersionedRouteBuilder("/foo", handlerv1, 1, true).MethodGet()).
+		Append(NewVersionedRouteBuilder("/foo", handlerv2, 2, false).MethodGet()).
+		Build()
+
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(routes))
+
+	//header := http.Header{}
+	//header.Set("Accept", "bla")
+	//recorder := &httptest.ResponseRecorder{}
+	//routes[0].handler(recorder, &http.Request{Header: header})
+
+	router := httprouter.New()
+	router.Handler(routes[0].method, routes[0].path, routes[0].handler)
+	routerAfterMiddleware := MiddlewareChain(router, NewRecoveryMiddleware())
+
+	s := &http.Server{
+		Addr:    ":3000",
+		Handler: routerAfterMiddleware,
+	}
+
+	err = s.ListenAndServe()
+
 }
 
 func testingHandlerMock(expected interface{}) ProcessorFunc {

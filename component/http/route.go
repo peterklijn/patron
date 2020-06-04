@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/beatlabs/patron/component/http/auth"
@@ -16,6 +18,7 @@ type Route struct {
 	method      string
 	handler     http.HandlerFunc
 	middlewares []MiddlewareFunc
+	version     int
 }
 
 // Path returns route path value.
@@ -40,13 +43,15 @@ func (r Route) Handler() http.HandlerFunc {
 
 // RouteBuilder for building a route.
 type RouteBuilder struct {
-	method        string
-	path          string
-	trace         bool
-	middlewares   []MiddlewareFunc
-	authenticator auth.Authenticator
-	handler       http.HandlerFunc
-	errors        []error
+	method         string
+	path           string
+	trace          bool
+	middlewares    []MiddlewareFunc
+	authenticator  auth.Authenticator
+	handler        http.HandlerFunc
+	errors         []error
+	version        int
+	defaultVersion bool
 }
 
 // WithTrace enables route tracing.
@@ -152,6 +157,7 @@ func (rb *RouteBuilder) Build() (Route, error) {
 		method:      rb.method,
 		handler:     rb.handler,
 		middlewares: middlewares,
+		version:     rb.version,
 	}, nil
 }
 
@@ -186,6 +192,14 @@ func NewRouteBuilder(path string, processor ProcessorFunc) *RouteBuilder {
 	return rb
 }
 
+// NewVersionedRouteBuilder constructor.
+func NewVersionedRouteBuilder(path string, processor ProcessorFunc, version int, isDefaultVersion bool) *RouteBuilder {
+	rb := NewRouteBuilder(path, processor)
+	rb.version = version
+	rb.defaultVersion = isDefaultVersion
+	return rb
+}
+
 // RoutesBuilder creates a list of routes.
 type RoutesBuilder struct {
 	routes []Route
@@ -205,6 +219,55 @@ func (rb *RoutesBuilder) Append(builder *RouteBuilder) *RoutesBuilder {
 
 // Build the routes.
 func (rb *RoutesBuilder) Build() ([]Route, error) {
+
+	routes := make(map[string][]Route)
+	for _, r := range rb.routes {
+		key := strings.ToLower(r.method + "-" + r.path)
+		routes[key] = append(routes[key], r)
+	}
+
+	re := regexp.MustCompile(`application/vnd.([a-z0-9.]+)\+([A-Za-z]+);\s*version=(\d+)`)
+	for key, rs := range routes {
+		if len(rs) > 1 {
+			if rs[0].version <= 0 {
+				rb.errors = append(rb.errors, fmt.Errorf("route with key %s is duplicate :(", key))
+			} else {
+				r := Route{
+					path:        rs[0].path,
+					method:      rs[0].method,
+					middlewares: rs[0].middlewares,
+					handler: func(rw http.ResponseWriter, rq *http.Request) {
+						acceptHeader := rq.Header.Get("Accept")
+						matches := re.FindStringSubmatch(acceptHeader)
+						if len(matches) == 4 {
+							i, err := strconv.Atoi(matches[3])
+							if err == nil {
+								switch i {
+								case rs[0].version:
+									rs[0].handler(rw, rq)
+								case rs[1].version:
+									rs[1].handler(rw, rq)
+								default:
+									println("Inside default fallback :(")
+									rw.WriteHeader(400)
+								}
+							}
+						} else {
+							println("Inside else stattement, no match on accept header")
+							rs[0].handler(rw, rq)
+						}
+					},
+				}
+				routes[key] = []Route{r}
+			}
+
+		}
+	}
+
+	rb.routes = []Route{}
+	for _, r := range routes {
+		rb.routes = append(rb.routes, r[0])
+	}
 
 	duplicates := make(map[string]struct{}, len(rb.routes))
 

@@ -80,7 +80,7 @@ func determineEncoding(r *http.Request) (string, encoding.DecodeFunc, encoding.E
 
 	if aok {
 		switch ach[0] {
-		case "*/*", json.Type, json.TypeCharset:
+		case "*/*", json.Type, json.TypeCharset, "application/vnd.bla+json;version=1", "application/vnd.bla+json;version=2":
 			enc = json.Encode
 			if dec == nil {
 				dec = json.Decode
