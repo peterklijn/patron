@@ -338,8 +338,8 @@ func TestBla(t *testing.T) {
 		return &Response{2}, nil
 	}
 	routes, err := NewRoutesBuilder().
-		Append(NewVersionedRouteBuilder("/foo", handlerv1, 1, true).MethodGet()).
-		Append(NewVersionedRouteBuilder("/foo", handlerv2, 2, false).MethodGet()).
+		Append(NewVersionedRouteBuilder("/foo", map[int]ProcessorFunc{1: handlerv1, 2: handlerv2}, 1).MethodGet()).
+		//Append(NewVersionedRouteBuilder("/foo", handlerv2, 2, false).MethodGet()).
 		Build()
 
 	assert.NoError(t, err)

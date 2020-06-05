@@ -18,7 +18,6 @@ type Route struct {
 	method      string
 	handler     http.HandlerFunc
 	middlewares []MiddlewareFunc
-	version     int
 }
 
 // Path returns route path value.
@@ -41,17 +40,17 @@ func (r Route) Handler() http.HandlerFunc {
 	return r.handler
 }
 
+const defaultHandler = 0
+
 // RouteBuilder for building a route.
 type RouteBuilder struct {
-	method         string
-	path           string
-	trace          bool
-	middlewares    []MiddlewareFunc
-	authenticator  auth.Authenticator
-	handler        http.HandlerFunc
-	errors         []error
-	version        int
-	defaultVersion bool
+	method        string
+	path          string
+	trace         bool
+	middlewares   []MiddlewareFunc
+	authenticator auth.Authenticator
+	handlers      map[int]http.HandlerFunc
+	errors        []error
 }
 
 // WithTrace enables route tracing.
@@ -152,13 +151,45 @@ func (rb *RouteBuilder) Build() (Route, error) {
 		middlewares = append(middlewares, rb.middlewares...)
 	}
 
-	return Route{
-		path:        rb.path,
-		method:      rb.method,
-		handler:     rb.handler,
-		middlewares: middlewares,
-		version:     rb.version,
-	}, nil
+	if dh, ok := rb.handlers[defaultHandler]; len(rb.handlers) == 1 && ok {
+		return Route{
+			path:        rb.path,
+			method:      rb.method,
+			handler:     dh, // fixme
+			middlewares: middlewares,
+		}, nil
+	} else {
+		re := regexp.MustCompile(`application/vnd.([a-z0-9.]+)\+([A-Za-z]+);\s*version=(\d+)`)
+		versionHandler := func(handlers map[int]http.HandlerFunc) http.HandlerFunc {
+			return func(rw http.ResponseWriter, rq *http.Request) {
+				acceptHeader := rq.Header.Get("Accept")
+				matches := re.FindStringSubmatch(acceptHeader)
+				if len(matches) == 4 {
+					version, err := strconv.Atoi(matches[3])
+					if err == nil {
+						handler, ok := handlers[version]
+						if !ok {
+							rw.WriteHeader(http.StatusTeapot)
+						} else {
+							handler(rw, rq)
+						}
+						return
+					}
+				} else if dh, ok := handlers[defaultHandler]; ok {
+					dh(rw, rq)
+				} else {
+					rw.WriteHeader(http.StatusExpectationFailed)
+				}
+			}
+		}(rb.handlers)
+		return Route{
+			path:        rb.path,
+			method:      rb.method,
+			handler:     versionHandler,
+			middlewares: middlewares,
+		}, nil
+	}
+
 }
 
 // NewRawRouteBuilder constructor.
@@ -173,7 +204,7 @@ func NewRawRouteBuilder(path string, handler http.HandlerFunc) *RouteBuilder {
 		ee = append(ee, errors.New("handler is nil"))
 	}
 
-	return &RouteBuilder{path: path, errors: ee, handler: handler}
+	return &RouteBuilder{path: path, errors: ee, handlers: map[int]http.HandlerFunc{defaultHandler: handler}}
 }
 
 // NewRouteBuilder constructor.
@@ -193,11 +224,30 @@ func NewRouteBuilder(path string, processor ProcessorFunc) *RouteBuilder {
 }
 
 // NewVersionedRouteBuilder constructor.
-func NewVersionedRouteBuilder(path string, processor ProcessorFunc, version int, isDefaultVersion bool) *RouteBuilder {
-	rb := NewRouteBuilder(path, processor)
-	rb.version = version
-	rb.defaultVersion = isDefaultVersion
-	return rb
+func NewVersionedRouteBuilder(path string, processors map[int]ProcessorFunc, defaultVersion int) *RouteBuilder {
+	var ee []error
+
+	if path == "" {
+		ee = append(ee, errors.New("path is empty"))
+	}
+
+	if _, ok := processors[defaultVersion]; !ok {
+		ee = append(ee, errors.New("default version not present in map of processors"))
+	}
+
+	handlers := make(map[int]http.HandlerFunc, len(processors)+1)
+	for version, processor := range processors {
+		if version <= 0 {
+			ee = append(ee, errors.New(fmt.Sprintf("versions smaller than 1 are not allowed")))
+		} else if processor == nil {
+			ee = append(ee, errors.New(fmt.Sprintf("processor for version %d is nil", version)))
+		} else {
+			handlers[version] = handler(processor)
+		}
+	}
+	handlers[defaultHandler] = handler(processors[defaultHandler])
+
+	return &RouteBuilder{path: path, errors: ee, handlers: handlers}
 }
 
 // RoutesBuilder creates a list of routes.
@@ -219,56 +269,6 @@ func (rb *RoutesBuilder) Append(builder *RouteBuilder) *RoutesBuilder {
 
 // Build the routes.
 func (rb *RoutesBuilder) Build() ([]Route, error) {
-
-	routes := make(map[string][]Route)
-	for _, r := range rb.routes {
-		key := strings.ToLower(r.method + "-" + r.path)
-		routes[key] = append(routes[key], r)
-	}
-
-	re := regexp.MustCompile(`application/vnd.([a-z0-9.]+)\+([A-Za-z]+);\s*version=(\d+)`)
-	for key, rs := range routes {
-		if len(rs) > 1 {
-			if rs[0].version <= 0 {
-				rb.errors = append(rb.errors, fmt.Errorf("route with key %s is duplicate :(", key))
-			} else {
-				r := Route{
-					path:        rs[0].path,
-					method:      rs[0].method,
-					middlewares: rs[0].middlewares,
-					handler: func(rw http.ResponseWriter, rq *http.Request) {
-						acceptHeader := rq.Header.Get("Accept")
-						matches := re.FindStringSubmatch(acceptHeader)
-						if len(matches) == 4 {
-							i, err := strconv.Atoi(matches[3])
-							if err == nil {
-								switch i {
-								case rs[0].version:
-									rs[0].handler(rw, rq)
-								case rs[1].version:
-									rs[1].handler(rw, rq)
-								default:
-									println("Inside default fallback :(")
-									rw.WriteHeader(400)
-								}
-							}
-						} else {
-							println("Inside else stattement, no match on accept header")
-							rs[0].handler(rw, rq)
-						}
-					},
-				}
-				routes[key] = []Route{r}
-			}
-
-		}
-	}
-
-	rb.routes = []Route{}
-	for _, r := range routes {
-		rb.routes = append(rb.routes, r[0])
-	}
-
 	duplicates := make(map[string]struct{}, len(rb.routes))
 
 	for _, r := range rb.routes {
