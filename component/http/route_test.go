@@ -51,7 +51,8 @@ func TestRouteBuilder_WithMethodGet(t *testing.T) {
 				assert.Equal(t, Route{}, got)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, http.MethodGet, got.method)
+				assert.Equal(t, 1, len(got))
+				assert.Equal(t, http.MethodGet, got[0].method)
 			}
 		})
 	}
@@ -303,9 +304,11 @@ func TestRoute_Getters(t *testing.T) {
 
 	path := "/foo"
 	expectedResponse := testResponse{"foo"}
-	r, err := NewRouteBuilder(path, testingHandlerMock(expectedResponse)).WithTrace().MethodPost().Build()
+	rr, err := NewRouteBuilder(path, testingHandlerMock(expectedResponse)).WithTrace().MethodPost().Build()
 	require.NoError(t, err)
 
+	assert.Len(t, rr, 1)
+	r := rr[0]
 	assert.Equal(t, path, r.Path())
 	assert.Equal(t, http.MethodPost, r.Method())
 	assert.Len(t, r.Middlewares(), 1)
@@ -338,20 +341,28 @@ func TestBla(t *testing.T) {
 		return &Response{2}, nil
 	}
 	routes, err := NewRoutesBuilder().
-		Append(NewVersionedRouteBuilder("/foo", map[int]ProcessorFunc{1: handlerv1, 2: handlerv2}, 1).MethodGet()).
-		//Append(NewVersionedRouteBuilder("/foo", handlerv2, 2, false).MethodGet()).
+		Append(NewRouteBuilder("/bar", handlerv1).MethodGet()).
+		Append(
+			NewVersionedRouteBuilder(
+				"/foo",
+				map[int]ProcessorFunc{1: handlerv1, 2: handlerv2},
+				1).
+				MethodGet()).
+		// -> /foo
+		// -> /foo header=application/vnd.something+json;version=1
+		// -> /foo header=application/vnd.something+json;version=2
+		// -> /v1/foo
+		// -> /v2/foo
 		Build()
 
 	assert.NoError(t, err)
-	assert.Equal(t, 1, len(routes))
-
-	//header := http.Header{}
-	//header.Set("Accept", "bla")
-	//recorder := &httptest.ResponseRecorder{}
-	//routes[0].handler(recorder, &http.Request{Header: header})
+	assert.Equal(t, 4, len(routes))
 
 	router := httprouter.New()
-	router.Handler(routes[0].method, routes[0].path, routes[0].handler)
+	for _, r := range routes {
+		router.Handler(r.method, r.path, r.handler)
+
+	}
 	routerAfterMiddleware := MiddlewareChain(router, NewRecoveryMiddleware())
 
 	s := &http.Server{

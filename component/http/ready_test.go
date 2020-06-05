@@ -20,12 +20,13 @@ func Test_readyCheckRoute(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r, err := readyCheckRoute(tt.rcf).Build()
+			rr, err := readyCheckRoute(tt.rcf).Build()
 			assert.NoError(t, err)
+			assert.Len(t, rr, 1)
 			resp := httptest.NewRecorder()
 			req, err := http.NewRequest("GET", "/alive", nil)
 			assert.NoError(t, err)
-			r.handler(resp, req)
+			rr[0].handler(resp, req)
 			assert.Equal(t, tt.want, resp.Code)
 		})
 	}

@@ -131,13 +131,13 @@ func (rb *RouteBuilder) MethodTrace() *RouteBuilder {
 }
 
 // Build a route.
-func (rb *RouteBuilder) Build() (Route, error) {
+func (rb *RouteBuilder) Build() ([]Route, error) {
 	if len(rb.errors) > 0 {
-		return Route{}, errs.Aggregate(rb.errors...)
+		return []Route{}, errs.Aggregate(rb.errors...)
 	}
 
 	if rb.method == "" {
-		return Route{}, errors.New("method is missing")
+		return []Route{}, errors.New("method is missing")
 	}
 
 	var middlewares []MiddlewareFunc
@@ -152,12 +152,12 @@ func (rb *RouteBuilder) Build() (Route, error) {
 	}
 
 	if dh, ok := rb.handlers[defaultHandler]; len(rb.handlers) == 1 && ok {
-		return Route{
+		return []Route{{
 			path:        rb.path,
 			method:      rb.method,
-			handler:     dh, // fixme
+			handler:     dh,
 			middlewares: middlewares,
-		}, nil
+		}}, nil
 	} else {
 		re := regexp.MustCompile(`application/vnd.([a-z0-9.]+)\+([A-Za-z]+);\s*version=(\d+)`)
 		versionHandler := func(handlers map[int]http.HandlerFunc) http.HandlerFunc {
@@ -173,7 +173,6 @@ func (rb *RouteBuilder) Build() (Route, error) {
 						} else {
 							handler(rw, rq)
 						}
-						return
 					}
 				} else if dh, ok := handlers[defaultHandler]; ok {
 					dh(rw, rq)
@@ -182,12 +181,18 @@ func (rb *RouteBuilder) Build() (Route, error) {
 				}
 			}
 		}(rb.handlers)
-		return Route{
+		routes := []Route{{
 			path:        rb.path,
 			method:      rb.method,
 			handler:     versionHandler,
 			middlewares: middlewares,
-		}, nil
+		}}
+		for version, handler := range rb.handlers {
+			if version != defaultHandler {
+				routes = append(routes, Route{path: fmt.Sprintf("/v%d%s", version, rb.path), method: rb.method, handler: handler, middlewares: middlewares})
+			}
+		}
+		return routes, nil
 	}
 
 }
@@ -245,7 +250,7 @@ func NewVersionedRouteBuilder(path string, processors map[int]ProcessorFunc, def
 			handlers[version] = handler(processor)
 		}
 	}
-	handlers[defaultHandler] = handler(processors[defaultHandler])
+	handlers[defaultHandler] = handler(processors[defaultVersion])
 
 	return &RouteBuilder{path: path, errors: ee, handlers: handlers}
 }
@@ -258,11 +263,11 @@ type RoutesBuilder struct {
 
 // Append a route to the list.
 func (rb *RoutesBuilder) Append(builder *RouteBuilder) *RoutesBuilder {
-	route, err := builder.Build()
+	routes, err := builder.Build()
 	if err != nil {
 		rb.errors = append(rb.errors, err)
 	} else {
-		rb.routes = append(rb.routes, route)
+		rb.routes = append(rb.routes, routes...)
 	}
 	return rb
 }

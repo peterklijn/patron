@@ -15,9 +15,10 @@ func Test_PprofHandlers(t *testing.T) {
 	rr := profilingRoutes()
 
 	for _, r := range rr {
-		route, err := r.Build()
+		routes, err := r.Build()
 		assert.NoError(t, err)
-		mux.HandleFunc(route.path, route.handler)
+		assert.Len(t, routes, 1)
+		mux.HandleFunc(routes[0].path, routes[0].handler)
 	}
 
 	server := httptest.NewServer(mux)

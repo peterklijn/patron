@@ -20,11 +20,13 @@ func Test_aliveCheckRoute(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r, err := aliveCheckRoute(tt.acf).Build()
+			rr, err := aliveCheckRoute(tt.acf).Build()
 			assert.NoError(t, err)
 			resp := httptest.NewRecorder()
 			req, err := http.NewRequest("GET", "/alive", nil)
 			assert.NoError(t, err)
+			assert.Len(t, rr, 1)
+			r := rr[0]
 			r.handler(resp, req)
 			assert.Equal(t, tt.want, resp.Code)
 		})

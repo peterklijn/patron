@@ -8,9 +8,10 @@ import (
 )
 
 func Test_metricRoute(t *testing.T) {
-	route, err := metricRoute().Build()
+	routes, err := metricRoute().Build()
+	assert.Len(t, routes, 1)
 	assert.NoError(t, err)
-	assert.Equal(t, http.MethodGet, route.method)
-	assert.Equal(t, "/metrics", route.path)
-	assert.NotNil(t, route.handler)
+	assert.Equal(t, http.MethodGet, routes[0].method)
+	assert.Equal(t, "/metrics", routes[0].path)
+	assert.NotNil(t, routes[0].handler)
 }

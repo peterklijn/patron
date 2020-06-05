@@ -278,9 +278,10 @@ func Test_extractParams(t *testing.T) {
 	}
 
 	router := httprouter.New()
-	route, err := NewRouteBuilder("/users/:id/status", proc).MethodGet().Build()
+	routes, err := NewRouteBuilder("/users/:id/status", proc).MethodGet().Build()
 	assert.NoError(t, err)
-	router.HandlerFunc(route.method, route.path, route.handler)
+	assert.Len(t, routes, 1)
+	router.HandlerFunc(routes[0].method, routes[0].path, routes[0].handler)
 	router.ServeHTTP(httptest.NewRecorder(), req)
 	assert.Equal(t, "1", fields["id"])
 }
