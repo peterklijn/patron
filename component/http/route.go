@@ -229,15 +229,11 @@ func NewRouteBuilder(path string, processor ProcessorFunc) *RouteBuilder {
 }
 
 // NewVersionedRouteBuilder constructor.
-func NewVersionedRouteBuilder(path string, processors map[int]ProcessorFunc, defaultVersion int) *RouteBuilder {
+func NewVersionedRouteBuilder(path string, processors map[int]ProcessorFunc) *RouteBuilder {
 	var ee []error
 
 	if path == "" {
 		ee = append(ee, errors.New("path is empty"))
-	}
-
-	if _, ok := processors[defaultVersion]; !ok {
-		ee = append(ee, errors.New("default version not present in map of processors"))
 	}
 
 	handlers := make(map[int]http.HandlerFunc, len(processors)+1)
@@ -250,9 +246,19 @@ func NewVersionedRouteBuilder(path string, processors map[int]ProcessorFunc, def
 			handlers[version] = handler(processor)
 		}
 	}
-	handlers[defaultHandler] = handler(processors[defaultVersion])
 
 	return &RouteBuilder{path: path, errors: ee, handlers: handlers}
+}
+
+// WithDefaultVersion set's a default version if a mediatype version is not provided.
+// Using this builder step only makes sense when building a versioned route.
+func (rb *RouteBuilder) WithDefaultVersion(defaultVersion int) *RouteBuilder {
+	if _, ok := rb.handlers[defaultVersion]; !ok {
+		rb.errors = append(rb.errors, errors.New(fmt.Sprintf("Default version %d is not present in map of versions", defaultVersion)))
+	} else {
+		rb.handlers[defaultHandler] = rb.handlers[defaultVersion]
+	}
+	return rb
 }
 
 // RoutesBuilder creates a list of routes.

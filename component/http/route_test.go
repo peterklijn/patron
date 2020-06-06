@@ -343,10 +343,8 @@ func TestBla(t *testing.T) {
 	routes, err := NewRoutesBuilder().
 		Append(NewRouteBuilder("/bar", handlerv1).MethodGet()).
 		Append(
-			NewVersionedRouteBuilder(
-				"/foo",
-				map[int]ProcessorFunc{1: handlerv1, 2: handlerv2},
-				1).
+			NewVersionedRouteBuilder("/foo", map[int]ProcessorFunc{1: handlerv1, 2: handlerv2}).
+				WithDefaultVersion(1).
 				MethodGet()).
 		// -> /foo
 		// -> /foo header=application/vnd.something+json;version=1
