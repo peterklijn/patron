@@ -14,7 +14,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 )
 
-const applicationTypeRegex = `application/[a-zA-Z0-9.]+\+([a-z]+)(?:\s?;.*)?`
+const applicationTypeRegex = `application\/(?:\w+\.?)+\+([a-z]+)(?:\s?;.*)?`
 
 func handler(hnd ProcessorFunc) http.HandlerFunc {
 	applicationType := regexp.MustCompile(applicationTypeRegex)

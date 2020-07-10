@@ -102,6 +102,7 @@ func Test_ApplicationTypeRegex(t *testing.T) {
 		{"application/vnd.patron+json; version=2", true, "json"},
 		{"application/vnd.patron.name+json;version=2.1", true, "json"},
 		{"application/something+xml;version=2.1;charset=UTF-8", true, "xml"},
+		{"application/vnd..patron.v2+json", false, ""},
 	}
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("accept header %s", tt.acceptHeader), func(t *testing.T) {
