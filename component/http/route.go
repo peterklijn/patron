@@ -10,6 +10,10 @@ import (
 
 	"github.com/beatlabs/patron/component/http/auth"
 	errs "github.com/beatlabs/patron/errors"
+
+const (
+	applicationTypeVersionSubtypeRegex   = `application\/((?:\w+\.?)+)\.v(\d+(?:\.\d+)?)\+[a-z]+(?:\s?;.+)*`
+	applicationTypeVersionParameterRegex = `application\/((?:\w+\.?)+)\+[a-z]+;(?:.*;*\s?)version=(\d+(?:\.\d+)?)(?:;.*)*`
 )
 
 // Route definition of a HTTP route.

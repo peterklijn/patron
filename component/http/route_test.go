@@ -3,9 +3,11 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 
 	"github.com/julienschmidt/httprouter"
@@ -328,6 +330,69 @@ func TestRoute_Getters(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, expectedResponse, gotResponse)
+}
+
+func Test_ApplicationTypeVersionSubtypeRegex(t *testing.T) {
+	regex := regexp.MustCompile(applicationTypeVersionSubtypeRegex)
+	tests := []struct {
+		acceptHeader string
+		succeeds     bool
+		subtype      string
+		version      string
+	}{
+		{"", false, "", ""},
+		{"application/json", false, "", ""},
+		{"application/vnd.patron.v2+json", true, "vnd.patron", "2"},
+		{"application/vnd.patron.name.v2.1+json", true, "vnd.patron.name", "2.1"},
+		{"application/vnd.patron.name.v12.31+json", true, "vnd.patron.name", "12.31"},
+		{"application/vnd.patron.name.v2.1+xml;charset=UTF-8", true, "vnd.patron.name", "2.1"},
+		{"application/vnd.patron.name.v1+json; charset=UTF-8;x=y", true, "vnd.patron.name", "1"},
+		{"application/vnd..patron.name.v1+json; charset=UTF-8;x=y", false, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("accept header %s", tt.acceptHeader), func(t *testing.T) {
+			match := regex.FindStringSubmatch(tt.acceptHeader)
+			if tt.succeeds {
+				assert.Equal(t, 3, len(match))
+				assert.Equal(t, tt.subtype, match[1])
+				assert.Equal(t, tt.version, match[2])
+			} else {
+				assert.Nil(t, match)
+			}
+		})
+	}
+}
+
+func Test_ApplicationTypeVersionParameterRegex(t *testing.T) {
+	regex := regexp.MustCompile(applicationTypeVersionParameterRegex)
+	tests := []struct {
+		acceptHeader string
+		succeeds     bool
+		subtype      string
+		version      string
+	}{
+		{"", false, "", ""},
+		{"application/json", false, "", ""},
+		{"application/vnd.patron+json; version=2", true, "vnd.patron", "2"},
+		{"application/vnd.patron.name+json;version=2.1", true, "vnd.patron.name", "2.1"},
+		{"application/vnd.patron.name+json; version=12.31", true, "vnd.patron.name", "12.31"},
+		{"application/vnd.patron.name+json;version=1.2; charset=UTF-8", true, "vnd.patron.name", "1.2"},
+		{"application/vnd.patron.name+json; something=value;version=1.2;charset=UTF-8", true, "vnd.patron.name", "1.2"},
+		{"application/vnd.patron.name+json; something=value; version=1.2; charset=UTF-8", true, "vnd.patron.name", "1.2"},
+		{"application/vnd.patron..name+json; something=value; version=1;charset=UTF-8", false, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("accept header %s", tt.acceptHeader), func(t *testing.T) {
+			match := regex.FindStringSubmatch(tt.acceptHeader)
+			if tt.succeeds {
+				assert.Equal(t, 3, len(match))
+				assert.Equal(t, tt.subtype, match[1])
+				assert.Equal(t, tt.version, match[2])
+			} else {
+				assert.Nil(t, match)
+			}
+		})
+	}
 }
 
 func TestBla(t *testing.T) {
