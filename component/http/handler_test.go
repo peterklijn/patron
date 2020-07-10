@@ -3,8 +3,10 @@ package http
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 
 	"github.com/beatlabs/patron/correlation"
@@ -64,10 +66,13 @@ func Test_determineEncoding(t *testing.T) {
 		{"missing headers, defaults json", args{req: request(t, "", "")}, json.Decode, json.Encode, json.TypeCharset, false},
 		{"accept */*, defaults to json", args{req: request(t, json.TypeCharset, "*/*")}, json.Decode, json.Encode, json.TypeCharset, false},
 		{"wrong content", args{req: request(t, "application/xml", json.TypeCharset)}, nil, nil, json.TypeCharset, true},
+		{"json with vendor", args{req: request(t, json.Type, "application/vnd.something+json")}, json.Decode, json.Encode, json.TypeCharset, false},
+		{"json with vendor and version", args{req: request(t, json.Type, "application/vnd.something.v2.1+json")}, json.Decode, json.Encode, json.TypeCharset, false},
+		{"json with vendor and version parameter", args{req: request(t, json.Type, "application/vnd.something+json;version=2.1")}, json.Decode, json.Encode, json.TypeCharset, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ct, got, got1, err := determineEncoding(tt.args.req)
+			ct, got, got1, err := determineEncoding(tt.args.req, regexp.MustCompile(applicationTypeRegex))
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Nil(t, got)
@@ -78,6 +83,34 @@ func Test_determineEncoding(t *testing.T) {
 				assert.NotNil(t, got)
 				assert.NotNil(t, got1)
 				assert.Equal(t, tt.ct, ct)
+			}
+		})
+	}
+}
+
+func Test_ApplicationTypeRegex(t *testing.T) {
+	regex := regexp.MustCompile(applicationTypeRegex)
+	tests := []struct {
+		acceptHeader string
+		succeeds     bool
+		typeMatch    string
+	}{
+		{"", false, ""},
+		{"application/json", false, ""},
+		{"application/vnd.patron.v2+json", true, "json"},
+		{"application/vnd.patron.name.v2.1+json", true, "json"},
+		{"application/vnd.patron+json; version=2", true, "json"},
+		{"application/vnd.patron.name+json;version=2.1", true, "json"},
+		{"application/something+xml;version=2.1;charset=UTF-8", true, "xml"},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("accept header %s", tt.acceptHeader), func(t *testing.T) {
+			match := regex.FindStringSubmatch(tt.acceptHeader)
+			if tt.succeeds {
+				assert.Equal(t, 2, len(match))
+				assert.Equal(t, tt.typeMatch, match[1])
+			} else {
+				assert.Nil(t, match)
 			}
 		})
 	}

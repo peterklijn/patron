@@ -3,6 +3,7 @@ package http
 import (
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/beatlabs/patron/correlation"
@@ -13,11 +14,13 @@ import (
 	"github.com/julienschmidt/httprouter"
 )
 
-func handler(hnd ProcessorFunc) http.HandlerFunc {
+const applicationTypeRegex = `application/[a-zA-Z0-9.]+\+([a-z]+)(?:\s?;.*)?`
 
+func handler(hnd ProcessorFunc) http.HandlerFunc {
+	applicationType := regexp.MustCompile(applicationTypeRegex)
 	return func(w http.ResponseWriter, r *http.Request) {
 
-		ct, dec, enc, err := determineEncoding(r)
+		ct, dec, enc, err := determineEncoding(r, applicationType)
 		if err != nil {
 			http.Error(w, http.StatusText(http.StatusUnsupportedMediaType), http.StatusUnsupportedMediaType)
 			return
@@ -50,7 +53,7 @@ func handler(hnd ProcessorFunc) http.HandlerFunc {
 	}
 }
 
-func determineEncoding(r *http.Request) (string, encoding.DecodeFunc, encoding.EncodeFunc, error) {
+func determineEncoding(r *http.Request, applicationType *regexp.Regexp) (string, encoding.DecodeFunc, encoding.EncodeFunc, error) {
 	cth, cok := r.Header[encoding.ContentTypeHeader]
 	ach, aok := r.Header[encoding.AcceptHeader]
 
@@ -79,13 +82,16 @@ func determineEncoding(r *http.Request) (string, encoding.DecodeFunc, encoding.E
 	}
 
 	if aok {
-		switch ach[0] {
-		case "*/*", json.Type, json.TypeCharset, "application/vnd.bla+json;version=1", "application/vnd.bla+json;version=2":
+		setJson := func() {
 			enc = json.Encode
 			if dec == nil {
 				dec = json.Decode
 			}
 			ct = json.TypeCharset
+		}
+		switch ach[0] {
+		case "*/*", json.Type, json.TypeCharset:
+			setJson()
 		case protobuf.Type, protobuf.TypeGoogle:
 			enc = protobuf.Encode
 			if dec == nil {
@@ -93,7 +99,12 @@ func determineEncoding(r *http.Request) (string, encoding.DecodeFunc, encoding.E
 			}
 			ct = protobuf.Type
 		default:
-			return "", nil, nil, errors.New("accept header not supported")
+			typeGroups := applicationType.FindStringSubmatch(ach[0])
+			if len(typeGroups) == 2 && typeGroups[1] == "json" {
+				setJson()
+			} else {
+				return "", nil, nil, errors.New("accept header not supported")
+			}
 		}
 	}
 
